@@ -96,6 +96,20 @@ class GPT(nn.Module):
         # weight sharing scheme
         self.transformer.wte.weight = self.lm_head.weight
 
+        # init params
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            std = 0.02
+            if hasattr(module, 'NANOGPT_SCALE_INIT'):
+                std *= (2 * self.config.n_layer) ** -0.5
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
     def forward(self, idx, targets=None):
         # idx is of shape (B, T)
         B, T = idx.size()
@@ -204,22 +218,32 @@ elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
     device = "mps"
 print(f"using device: {device}")
 
-train_loader = DataLoaderLite(B=4, T=32)
+train_loader = DataLoaderLite(B=8, T=512)
+
+torch.set_float32_matmul_precision('high')
 
 #get logits
 model = GPT(GPTConfig())
 model.to(device)
-
+model = torch.compile(model)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 for i in range(50):
+    t0 = time.time()
     x, y = train_loader.next_batch()
     x, y = x.to(device), y.to(device)
     optimizer.zero_grad()
-    logits, loss = model(x, y)
+    with torch.autocast(device_type=device, dtype=torch.bfloat16):
+        logits, loss = model(x, y)
     loss.backward()
     optimizer.step()
-    print(f"step {i}, loss: {loss.item()}")
+    torch.cuda.synchronize()
+    # import code; code.interact(local=locals())
+    t1 = time.time()
+    dt = (t1 - t0)*1000 # time difference in milliseconds
+    tokens_per_sec = (train_loader.B * train_loader.T) / (t1 - t0)
+    print(f"step {i}, loss: {loss.item()}, dt: {dt:.2f} ms, token/sec: {tokens_per_sec}")
+
 
 
 
