@@ -7,6 +7,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import tiktoken
+# import torch._dynamo
+# torch._dynamo.config.suppress_errors = True
 
 class CausalSelfAttention(nn.Module):
 
@@ -218,14 +220,14 @@ elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
     device = "mps"
 print(f"using device: {device}")
 
-train_loader = DataLoaderLite(B=8, T=512)
+train_loader = DataLoaderLite(B=4, T=512)
 
 torch.set_float32_matmul_precision('high')
 
 #get logits
 model = GPT(GPTConfig())
 model.to(device)
-model = torch.compile(model)
+# model = torch.compile(model)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 for i in range(50):
